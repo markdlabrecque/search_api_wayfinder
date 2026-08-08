@@ -1,0 +1,10 @@
+{
+    "name": "markdlabrecque/search_api_wayfinder",
+    "description": "Drupal Search API connector module for Wayfinder",
+    "type": "drupal-module",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1",
+        "drupal/core": "^10 || ^11"
+    }
+}
