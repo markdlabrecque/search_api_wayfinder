@@ -39,7 +39,7 @@ README "Testing"). A standalone clone fails those classes on missing fixtures.
 ## Phase 3 — autocomplete & hardening
 
 - [x] [#16](https://github.com/markdlabrecque/search_api_wayfinder/issues/16) Autocomplete suggester plugins (needs #5, #7; includes writing their missing tests)
-- [ ] [#17](https://github.com/markdlabrecque/search_api_wayfinder/issues/17) Test coverage audit (backend indexItems/delete paths, module hooks, suggest fixture)
+- [x] [#17](https://github.com/markdlabrecque/search_api_wayfinder/issues/17) Test coverage audit (backend indexItems/delete paths, module hooks, suggest fixture)
 
 ## Phase 4 — infrastructure & verification
 
