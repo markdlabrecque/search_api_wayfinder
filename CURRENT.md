@@ -21,7 +21,7 @@ README "Testing"). A standalone clone fails those classes on missing fixtures.
 - [x] [#2](https://github.com/markdlabrecque/search_api_wayfinder/issues/2) FieldMapper (foundation — everything depends on it)
 - [x] [#3](https://github.com/markdlabrecque/search_api_wayfinder/issues/3) WayfinderClient (independent of #2; parallelizable)
 - [x] [#4](https://github.com/markdlabrecque/search_api_wayfinder/issues/4) DocumentBuilder (needs #2)
-- [ ] [#5](https://github.com/markdlabrecque/search_api_wayfinder/issues/5) QueryBuilder (needs #2; conventions shared with #6)
+- [x] [#5](https://github.com/markdlabrecque/search_api_wayfinder/issues/5) QueryBuilder (needs #2; conventions shared with #6)
 - [x] [#6](https://github.com/markdlabrecque/search_api_wayfinder/issues/6) ResponseParser (needs #2; round-trip-tested against #5)
 - [ ] [#7](https://github.com/markdlabrecque/search_api_wayfinder/issues/7) WayfinderBackend (needs #2–#6)
 
