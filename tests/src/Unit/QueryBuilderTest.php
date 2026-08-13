@@ -1226,6 +1226,37 @@ class QueryBuilderTest extends TestCase {
     $this->assertSame('id:"my_index-entity:node/1:en"', $params['q']);
     // issue #342: mapped text field names now default to the 'und' language.
     $this->assertSame('tm_X3b_und_title,tm_X3b_und_body', $params['mlt.fl']);
+    // Match search_api_solr's MLT defaults rather than Wayfinder's broader
+    // Solr endpoint defaults; otherwise a small integration corpus has no
+    // terms eligible for MoreLikeThis.
+    $this->assertSame(1, $params['mlt.mintf']);
+    $this->assertSame(1, $params['mlt.mindf']);
+    $this->assertSame(100, $params['mlt.maxqt']);
+    $this->assertSame(2000, $params['mlt.maxntp']);
+  }
+
+  /**
+   * MLT field names must use the query's resolved language, just like the
+   * ordinary select path. Drupal's live query resolves to `en`; hardcoding
+   * `und` makes Wayfinder mine fields that contain no indexed values.
+   *
+   * @covers ::buildMlt
+   */
+  public function testBuildMltUsesResolvedQueryLanguage(): void {
+    $index = $this->mockIndex([], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ], 'my_index');
+    $language = $this->createMock(LanguageInterface::class);
+    $language->method('getId')->willReturn('en');
+    $languages = $this->createMock(LanguageManagerInterface::class);
+    $languages->method('getLanguages')->willReturn(['en' => $language]);
+    $query = $this->mockQuery(NULL, NULL, $index, NULL, [], [
+      'search_api_mlt' => ['id' => 'entity:node/2:en', 'fields' => ['title']],
+    ]);
+
+    $params = (new QueryBuilder(NULL, $languages))->buildMlt($query);
+
+    $this->assertSame('tm_X3b_en_title', $params['mlt.fl']);
   }
 
   /**

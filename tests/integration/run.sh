@@ -1,41 +1,17 @@
 #!/usr/bin/env bash
-# Integration verification for issue #80 (part of #57 M1 follow-up):
-# installs a real Drupal site with the search_api_wayfinder module under
-# test (backend plugin id "wayfinder", from M1/#75 -- no search_api_solr,
-# no Solarium, no connector plugin), points an authenticated Search API server
-# directly at a real Wayfinder instance built from this repo's
-# `presets/search-api.toml`, and drives a real index + fulltext search round
-# trip through WayfinderBackend::search().
+# End-to-end verification for issue #19. Installs a real Drupal site, indexes
+# a deterministic corpus through the standalone `wayfinder` Search API backend,
+# and exercises the capabilities supported by the checked-out search-api
+# preset. Docker and network access are required; run manually with:
 #
-# Gated behind WAYFINDER_INTEGRATION=1, the same way tests/differential.rs
-# gates its live-Solr mode behind WAYFINDER_DIFF_SOLR=1: this harness is
-# NOT part of default `cargo test` / `vendor/bin/phpunit` CI. Run manually:
+#   WAYFINDER_INTEGRATION=1 bash tests/integration/run.sh
 #
-#   WAYFINDER_INTEGRATION=1 bash drupal/search_api_wayfinder/tests/integration/run.sh
-#
-# Requires Docker with network access. Deliberately not a default job in
-# .github/workflows/ci.yml (M5/#79 decided it stays manual, since Docker +
-# network breaks the hermetic-gate contract the PHP unit job upholds); see
-# that file for the workflow_dispatch job that runs this script on demand.
-#
-# Own isolated containers/ports (wf80-*, 18990/9080 -- see docker-compose.yml
-# comment for the full collision-avoidance rationale). Never touches
-# solr-ref/search-api/ (read-only reference) or its capture.sh/manifest.tsv.
-# Tears itself down at the end regardless of success/failure.
-#
-# Adapted from the old worktree's run.sh
-# (/Users/mark/Projects/wayfinder-57-search-api-wayfinder/drupal/search_api_wayfinder/tests/integration/run.sh):
-# same docker-compose/site-install/content/query orchestration shape. What
-# changed: no `search_api_solr` dependency, no connector plugin discovery
-# check, no site_hash/connector_config wiring -- the module under test now
-# registers its own backend plugin directly (`drush pml`/`drush php:eval`
-# check below asserts the "wayfinder" *backend* is discoverable, not a
-# connector), and the admin/info/system probe from the old script is
-# dropped. As of M5/#79 WayfinderBackend::viewSettings() does call
-# {core}/admin/system for the version handshake (issue #59's endpoint), but
-# it is covered hermetically by WayfinderBackendTest against the captured
-# solr-ref/responses/admin_system.json fixture, so this harness still has no
-# reason to probe it live.
+# Each invocation receives a generated Compose project and project-scoped
+# Drupal volume. Compose assigns loopback ephemeral host ports by default;
+# docker compose port discovers them after startup. Explicit
+# WAYFINDER_HOST_PORT and DRUPAL_HOST_PORT overrides are validated before
+# Docker starts. The soft autocomplete dependency is installed only in this
+# ephemeral site. No fixed container names are used.
 
 if [ "${WAYFINDER_INTEGRATION:-0}" != "1" ]; then
   echo "skipping search_api_wayfinder integration harness (set WAYFINDER_INTEGRATION=1 to run)"
@@ -47,23 +23,61 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
+RUN_TOKEN="$(date +%s)-${BASHPID}-${RANDOM}"
+PROJECT_BASE="${COMPOSE_PROJECT_NAME:-wayfinder}"
+PROJECT_BASE="$(printf '%s' "$PROJECT_BASE" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
+PROJECT_BASE="${PROJECT_BASE:0:35}"
+[ -n "$PROJECT_BASE" ] || PROJECT_BASE='wayfinder'
+COMPOSE_PROJECT_NAME="${PROJECT_BASE}-${RUN_TOKEN}"
+STACK_ATTEMPTED=0
+
+validate_port_override() {
+  local name="$1" value="$2"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+    echo "FAIL: $name must be an integer between 1 and 65535" >&2
+    exit 2
+  fi
+}
+
 cleanup() {
-  echo "--- tearing down wf80-* containers ---"
-  docker compose down -v || true
+  local status=$?
+  trap - EXIT
+  if [ "$STACK_ATTEMPTED" = 1 ]; then
+    echo "--- tearing down Compose project $COMPOSE_PROJECT_NAME ---"
+    docker compose down -v || true
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
-chmod -R u+w drupal-site 2>/dev/null || true
-rm -rf drupal-site
-mkdir -p drupal-site
+export COMPOSE_PROJECT_NAME
+if [ -n "${WAYFINDER_HOST_PORT+x}" ]; then
+  validate_port_override WAYFINDER_HOST_PORT "$WAYFINDER_HOST_PORT"
+fi
+if [ -n "${DRUPAL_HOST_PORT+x}" ]; then
+  validate_port_override DRUPAL_HOST_PORT "$DRUPAL_HOST_PORT"
+fi
+if [ -n "${WAYFINDER_HOST_PORT+x}" ] && [ -n "${DRUPAL_HOST_PORT+x}" ] &&
+   [ "$WAYFINDER_HOST_PORT" = "$DRUPAL_HOST_PORT" ]; then
+  echo 'FAIL: WAYFINDER_HOST_PORT and DRUPAL_HOST_PORT must be distinct' >&2
+  exit 2
+fi
 
 echo "--- building wayfinder image + starting wayfinder ---"
+STACK_ATTEMPTED=1
 docker compose up -d --build wayfinder
+WAYFINDER_PUBLISHED_PORT="$(docker compose port wayfinder 8983 | awk -F: 'NF { print $NF; exit }')"
+if ! [[ "$WAYFINDER_PUBLISHED_PORT" =~ ^[0-9]+$ ]]; then
+  echo "FAIL: docker compose port did not return a Wayfinder host port" >&2
+  exit 1
+fi
+WAYFINDER_BASE_URL="http://127.0.0.1:${WAYFINDER_PUBLISHED_PORT}/wayfinder/content"
+export WAYFINDER_BASE_URL
 
 echo -n "waiting for wayfinder ping"
 wayfinder_ready=0
 for _ in $(seq 60); do
-  if curl -sf "http://localhost:18990/wayfinder/content/admin/ping?wt=json" >/dev/null 2>&1; then
+  if curl -sf "${WAYFINDER_BASE_URL}/admin/ping?wt=json" >/dev/null 2>&1; then
     echo " ok"; wayfinder_ready=1; break
   fi
   echo -n "."; sleep 1
@@ -76,10 +90,15 @@ fi
 
 echo "--- drupal container up ---"
 docker compose up -d drupal
+DRUPAL_PUBLISHED_PORT="$(docker compose port drupal 80 | awk -F: 'NF { print $NF; exit }')"
+if ! [[ "$DRUPAL_PUBLISHED_PORT" =~ ^[0-9]+$ ]]; then
+  echo "FAIL: docker compose port did not return a Drupal host port" >&2
+  exit 1
+fi
 sleep 3
 
 echo "--- composer project + module under test (path repo), no search_api_solr ---"
-docker exec wf80-drupal bash -lc "
+docker compose exec -T drupal bash -lc "
   set -euo pipefail
   cd /opt/drupal
   if [ ! -f composer.json ]; then
@@ -88,13 +107,13 @@ docker exec wf80-drupal bash -lc "
     mv tmp_build/* .
     rmdir tmp_build
   fi
-  php -r '\$c = json_decode(file_get_contents(\"composer.json\"), true); \$c[\"repositories\"][\"wf80_module\"] = [\"type\" => \"path\", \"url\" => \"/opt/module-src\", \"options\" => [\"versions\" => [\"wayfinder/search_api_wayfinder\" => \"dev-main\"]]]; file_put_contents(\"composer.json\", json_encode(\$c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));'
+  php -r '\$c = json_decode(file_get_contents(\"composer.json\"), true); \$c[\"repositories\"][\"wf19_module\"] = [\"type\" => \"path\", \"url\" => \"/opt/module-src\", \"options\" => [\"versions\" => [\"wayfinder/search_api_wayfinder\" => \"dev-main\"]]]; file_put_contents(\"composer.json\", json_encode(\$c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));'
   composer config repositories.drupal composer https://packages.drupal.org/8
-  composer require drush/drush:13.7.6 drupal/search_api:1.41.0 'wayfinder/search_api_wayfinder:dev-main' --no-interaction
+  composer require drush/drush:13.7.6 drupal/search_api:1.41.0 drupal/search_api_autocomplete:^1.0 'wayfinder/search_api_wayfinder:dev-main' --no-interaction
 "
 
 echo "--- confirming search_api_solr / solarium are NOT dependencies (acceptance item) ---"
-docker exec wf80-drupal bash -lc "
+docker compose exec -T drupal bash -lc "
   cd /opt/drupal
   if composer show drupal/search_api_solr >/dev/null 2>&1; then
     echo 'FAIL: drupal/search_api_solr present in dependency tree'
@@ -108,26 +127,26 @@ docker exec wf80-drupal bash -lc "
 "
 
 echo "--- site install (sqlite) ---"
-docker exec wf80-drupal bash -lc "
+docker compose exec -T drupal bash -lc "
   cd /opt/drupal
   vendor/bin/drush site:install standard \
     --db-url=sqlite://sites/default/files/.ht.sqlite \
     --site-name='Wayfinder IT' --account-name=admin --account-pass=admin -y
-  vendor/bin/drush en search_api search_api_wayfinder node file -y
+  vendor/bin/drush en search_api search_api_autocomplete search_api_wayfinder node file -y
 "
 
 echo "--- module install / backend plugin discovery check ---"
-docker exec wf80-drupal bash -lc "
+docker compose exec -T drupal bash -lc "
   cd /opt/drupal
   vendor/bin/drush pml --filter=search_api_wayfinder --format=json
   vendor/bin/drush php:eval \"print_r(array_keys(\\\\Drupal::service('plugin.manager.search_api.backend')->getDefinitions()));\"
 "
 
 echo "--- server, index, content ---"
-docker cp create_content.php wf80-drupal:/opt/drupal/create_content.php
-docker cp setup_server_index.php wf80-drupal:/opt/drupal/setup_server_index.php
-docker cp run_queries.php wf80-drupal:/opt/drupal/run_queries.php
-docker exec wf80-drupal bash -lc "
+docker compose cp create_content.php drupal:/opt/drupal/create_content.php
+docker compose cp setup_server_index.php drupal:/opt/drupal/setup_server_index.php
+docker compose cp run_queries.php drupal:/opt/drupal/run_queries.php
+docker compose exec -T drupal bash -lc "
   cd /opt/drupal
   # Setup before content: setup_server_index.php creates the field_attachments
   # file field (and the server/index). The attachment node created by
@@ -136,31 +155,31 @@ docker exec wf80-drupal bash -lc "
   # extraction slice has nothing to extract.
   vendor/bin/drush php:script setup_server_index.php
   vendor/bin/drush php:script create_content.php
-  vendor/bin/drush search-api:index wf80_index || vendor/bin/drush sapi-i wf80_index
+  vendor/bin/drush search-api:index wf19_index || vendor/bin/drush sapi-i wf19_index
 "
 
 # WayfinderBackend sends commitWithin=1000ms (setup_server_index.php), an
 # async *scheduled* hard commit, not immediate -- so the just-indexed fields
 # are not yet visible to /select without this. Force a synchronous commit
 # straight to the wayfinder container so the round trip isn't racing it.
-curl -sf --user operator:secret "http://localhost:18990/wayfinder/content/update?commit=true" -H 'Content-Type: application/json' -d '{}' >/dev/null
+curl -sf --user operator:secret "${WAYFINDER_BASE_URL}/update?commit=true" -H 'Content-Type: application/json' -d '{}' >/dev/null
 
 # Assert documents actually landed before handing off to run_queries.php,
 # so the "indexing succeeded" claim above is backed by real evidence, not
 # just this comment.
-num_found="$(curl -sf --user operator:secret --get "http://localhost:18990/wayfinder/content/select" \
+num_found="$(curl -sf --user operator:secret --get "${WAYFINDER_BASE_URL}/select" \
   --data-urlencode 'q=*:*' \
-  --data-urlencode 'fq=index_id:"wf80_index"' \
+  --data-urlencode 'fq=index_id:"wf19_index"' \
   --data-urlencode 'rows=0' \
   | jq -r '.response.numFound // 0')"
 if ! [ "$num_found" -ge 1 ] 2>/dev/null; then
-  echo "FAIL: expected indexed documents for index_id=wf80_index, found $num_found"
+  echo "FAIL: expected indexed documents for index_id=wf19_index, found $num_found"
   exit 1
 fi
-echo "confirmed: $num_found document(s) indexed for wf80_index"
+echo "confirmed: $num_found document(s) indexed for wf19_index"
 
 echo "--- real index+search round trip ---"
-docker exec wf80-drupal bash -lc "
+docker compose exec -T drupal bash -lc "
   cd /opt/drupal
   vendor/bin/drush php:script run_queries.php
 "

@@ -67,9 +67,14 @@ class QueryBuilder {
     if (!is_array($option) || !isset($option['id'])) {
       throw new \InvalidArgumentException('The search_api_mlt option must provide a seed item id.');
     }
+    $this->languages = $this->resolveLanguages($query);
     return [
       'q' => 'id:' . $this->fieldMapper->filterValue($index->id() . '-' . $option['id'], 'string'),
-      'mlt.fl' => implode(',', $this->mapFieldNames((array) ($option['fields'] ?? []), $index, [FieldMapper::LANGUAGE_UNSPECIFIED])),
+      'mlt.fl' => implode(',', $this->mapFieldNames((array) ($option['fields'] ?? []), $index, $this->languages)),
+      'mlt.mintf' => 1,
+      'mlt.mindf' => 1,
+      'mlt.maxqt' => 100,
+      'mlt.maxntp' => 2000,
       'fq' => 'index_id:"' . $index->id() . '"',
     ] + $this->buildPaging($query);
   }

@@ -56,7 +56,7 @@ class WayfinderBackend extends BackendPluginBase implements PluginFormInterface 
       'scheme' => 'http',
       'host' => 'localhost',
       'port' => 8983,
-      'path' => '/solr',
+      'path' => '/wayfinder',
       'core' => '',
       'timeout' => 5,
       'commitWithin' => 1000,
@@ -310,7 +310,7 @@ class WayfinderBackend extends BackendPluginBase implements PluginFormInterface 
     else {
       $response = $client->select($builder->build($query, !empty($this->configuration['highlight'])));
     }
-    (new ResponseParser())->parse($response, $query);
+    (new ResponseParser($this->languageManager))->parse($response, $query);
   }
 
   /**

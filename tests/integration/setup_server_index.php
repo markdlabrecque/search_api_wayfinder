@@ -1,31 +1,9 @@
 <?php
-// Creates a Search API server using the standalone "wayfinder" backend
-// plugin (search_api_wayfinder module under test, WayfinderBackend) pointed
-// at the wayfinder container from docker-compose.yml, and an index over
-// node title/body (fulltext) -- deliberately using only built-in node
-// properties so no custom field setup is needed for this round-trip check.
-//
-// Issue #80: adapted from the old worktree's
-// setup_server_index.php (/Users/mark/Projects/wayfinder-57-search-api-wayfinder/drupal/search_api_wayfinder/tests/integration/setup_server_index.php),
-// which configured a `search_api_solr` server with a `wayfinder` *connector*
-// plugin (backend: 'search_api_solr', backend_config.connector: 'wayfinder').
-// M1 (#75) superseded that architecture with a standalone backend, so this
-// version configures the server directly with `backend: 'wayfinder'` and
-// WayfinderBackend's own configuration schema (scheme/host/port/path/core/
-// timeout/commitWithin/username/password -- see
-// config/schema/search_api_wayfinder.schema.yml and
-// WayfinderBackend::defaultConfiguration()) -- no search_api_solr, no
-// Solarium, no connector plugin at all.
-//
-// `core` is "content", matching `[core].name` in the repo's
-// `presets/search-api.toml` (the schema this harness's Wayfinder container
-// loads, per docker-compose.yml) -- NOT a harness-local schema, so this
-// proves the round trip against the actual preset shipped for Drupal sites.
-//
-// M1 scope note (WayfinderBackend::getSupportedFeatures() currently returns
-// []): no facets, filters, or sorts are configured here. Only plain
-// fulltext search is exercised, matching what QueryBuilder/ResponseParser
-// implement as of M1.
+// Creates the standalone Wayfinder Search API server and a deterministic
+// index for issue #19. The live run uses the maintained search-api preset,
+// not a harness-local schema, and covers fulltext, facets, MLT, highlighting,
+// extraction, and autocomplete through the backend's current feature flags.
+// No search_api_solr, Solarium, or connector plugin is involved.
 
 use Drupal\search_api\Entity\Server;
 use Drupal\search_api\Entity\Index;
@@ -52,10 +30,29 @@ FieldConfig::create([
   'label' => 'Attachments',
 ])->save();
 
+// A controlled facet vocabulary keeps the live facet assertion deterministic.
+FieldStorageConfig::create([
+  'entity_type' => 'node',
+  'field_name' => 'field_category',
+  'type' => 'list_string',
+  'cardinality' => 1,
+  'settings' => ['allowed_values' => [
+    'rocket' => 'Rocket',
+    'garden' => 'Garden',
+    'mission' => 'Mission',
+  ]],
+])->save();
+FieldConfig::create([
+  'entity_type' => 'node',
+  'bundle' => 'article',
+  'field_name' => 'field_category',
+  'label' => 'Category',
+])->save();
+
 $server = Server::create([
-  'id' => 'wf80_server',
+  'id' => 'wf19_server',
   'name' => 'Wayfinder IT server',
-  'description' => 'issue #80 integration verification: search_api_wayfinder standalone backend against a real Wayfinder instance.',
+  'description' => 'Issue #19 integration verification against a real Wayfinder instance.',
   'backend' => 'wayfinder',
   'backend_config' => [
     'scheme' => 'http',
@@ -67,15 +64,18 @@ $server = Server::create([
     'commitWithin' => 1000,
     'username' => 'operator',
     'password' => 'secret',
+    // Enable highlighting only for the dedicated highlighting slice so a
+    // server-side highlighting regression cannot mask facets or extraction.
+    'highlight' => FALSE,
   ],
   'status' => TRUE,
 ]);
 $server->save();
 
 $index = Index::create([
-  'id' => 'wf80_index',
+  'id' => 'wf19_index',
   'name' => 'Wayfinder IT index',
-  'server' => 'wf80_server',
+  'server' => 'wf19_server',
   'status' => TRUE,
   'datasource_settings' => [
     'entity:node' => [
@@ -100,6 +100,12 @@ $index = Index::create([
       'datasource_id' => 'entity:node',
       'property_path' => 'body',
       'type' => 'text',
+    ],
+    'category' => [
+      'label' => 'Category',
+      'datasource_id' => 'entity:node',
+      'property_path' => 'field_category',
+      'type' => 'string',
     ],
     // Issue #262: the extracted attachment text lands in its OWN fulltext
     // field with independent boost (decision 2), not appended to body. The
