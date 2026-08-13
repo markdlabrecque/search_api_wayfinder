@@ -25,13 +25,13 @@ class QueryBuilder {
     $this->languages = $this->resolveLanguages($query);
     $params = ['fl' => 'id,index_id,score'];
     $keys = $query->getKeys();
+    $params['qf'] = $this->buildQf($query, $index, $keys !== NULL);
     if ($keys === NULL) {
       $params['q'] = '*:*';
     }
     else {
       $params['q'] = $this->flattenKeys($keys);
       $params['defType'] = 'edismax';
-      $params['qf'] = $this->buildQf($query, $index);
     }
 
     $filters = ['index_id:"' . $index->id() . '"'];
@@ -232,7 +232,7 @@ class QueryBuilder {
     return $names;
   }
 
-  private function buildQf(QueryInterface $query, IndexInterface $index): string {
+  private function buildQf(QueryInterface $query, IndexInterface $index, bool $applyBoost = TRUE): string {
     $names = [];
     foreach ($this->fulltextFieldIds($query, $index) as $id) {
       $field = $index->getField($id);
@@ -242,7 +242,7 @@ class QueryBuilder {
       foreach ($this->isTextType($field->getType()) ? $this->languages : [FieldMapper::LANGUAGE_UNSPECIFIED] as $language) {
         $name = $this->fieldMapper->fieldName($id, $field->getType(), $this->fieldMapper->isMultiValued($field), $language);
         $boost = $field->getBoost();
-        $names[] = $boost != 1.0 ? $name . '^' . rtrim(rtrim(sprintf('%.2f', $boost), '0'), '.') : $name;
+        $names[] = $applyBoost && $boost != 1.0 ? $name . '^' . rtrim(rtrim(sprintf('%.2f', $boost), '0'), '.') : $name;
       }
     }
     return implode(' ', $names);
