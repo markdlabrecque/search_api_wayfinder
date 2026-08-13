@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\search_api_wayfinder;
 
+use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Item\Item;
 use Drupal\search_api\Query\ConditionGroupInterface;
@@ -18,7 +19,7 @@ class ResponseParser {
 
   private readonly FieldMapper $fieldMapper;
 
-  public function __construct() {
+  public function __construct(private readonly ?LanguageManagerInterface $languageManager = NULL) {
     $this->fieldMapper = new FieldMapper();
   }
 
@@ -203,6 +204,14 @@ class ResponseParser {
 
     $languages = [];
     $this->collectLanguages($group, $languages);
+    if ($languages !== []) {
+      return array_values(array_unique($languages));
+    }
+    if ($this->languageManager !== NULL) {
+      foreach ($this->languageManager->getLanguages() as $language) {
+        $languages[] = $language->getId();
+      }
+    }
     return $languages === [] ? [FieldMapper::LANGUAGE_UNSPECIFIED] : array_values(array_unique($languages));
   }
 

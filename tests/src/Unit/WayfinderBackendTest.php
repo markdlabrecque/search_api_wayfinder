@@ -120,6 +120,19 @@ class WayfinderBackendTest extends TestCase {
   }
 
   /**
+   * The live Wayfinder endpoint is /wayfinder, not the retired /solr route.
+   * Keep the production default covered because the integration harness uses
+   * the same endpoint convention.
+   *
+   * @covers ::defaultConfiguration
+   */
+  public function testDefaultConfigurationUsesWayfinderBasePath(): void {
+    $backend = new WayfinderBackend([], 'wayfinder', []);
+
+    $this->assertSame('/wayfinder', $backend->defaultConfiguration()['path']);
+  }
+
+  /**
    * search_api_solr's BasicAuthTrait keeps the stored password in form state
    * rather than rendering it back into the HTML form.
    *

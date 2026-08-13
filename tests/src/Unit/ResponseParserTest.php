@@ -6,6 +6,7 @@ namespace Drupal\Tests\search_api_wayfinder\Unit;
 
 use Drupal\Core\Field\FieldDefinitionInterface;
 use Drupal\Core\Field\FieldStorageDefinitionInterface;
+use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Item\FieldInterface;
 use Drupal\search_api\Query\ConditionGroup;
@@ -26,7 +27,7 @@ use PHPUnit\Framework\TestCase;
  * id-stripping tests comes from locked decision 2 in
  * docs/plans/57-search-api-wayfinder-backend.md ("Document id is
  * {index_id}-{item_id}"), not from a captured fixture (none exists for
- * Search API-shaped docs yet). No facets/highlighting parsing in M1.
+ * Search API-shaped docs yet). Facets and highlighting parsing are covered below.
  *
  * @coversDefaultClass \Drupal\search_api_wayfinder\ResponseParser
  * @group search_api_wayfinder
@@ -917,6 +918,39 @@ class ResponseParserTest extends TestCase {
     $resultSet = (new ResponseParser())->parse($response, $query);
     $item = $resultSet->getResultItems()['doc1'];
 
+    $this->assertSame(['body' => ['the quick <em>fox</em>']], $item->getExtraData('highlighted_fields'));
+  }
+
+  /**
+   * When the query has no explicit language condition, ResponseParser must
+   * use the same enabled-language set as QueryBuilder rather than falling back
+   * to `und`. This is the backend path used by ordinary multilingual queries.
+   *
+   * @covers ::parse
+   */
+  public function testParseHighlightingUsesEnabledLanguagesWhenQueryHasNoLanguageCondition(): void {
+    $languageManager = $this->createMock(LanguageManagerInterface::class);
+    $en = $this->createMock(\Drupal\Core\Language\LanguageInterface::class);
+    $en->method('getId')->willReturn('en');
+    $de = $this->createMock(\Drupal\Core\Language\LanguageInterface::class);
+    $de->method('getId')->willReturn('de');
+    $languageManager->method('getLanguages')->willReturn(['en' => $en, 'de' => $de]);
+
+    $query = $this->mockQueryWithFields(['body' => 'text']);
+    $response = [
+      'response' => [
+        'numFound' => 1,
+        'start' => 0,
+        'docs' => [['id' => 'my_index-doc1', 'score' => 1.0]],
+      ],
+      'highlighting' => [
+        'my_index-doc1' => [
+          'tm_X3b_en_body' => ['the quick <em>fox</em>'],
+        ],
+      ],
+    ];
+
+    $item = (new ResponseParser($languageManager))->parse($response, $query)->getResultItems()['doc1'];
     $this->assertSame(['body' => ['the quick <em>fox</em>']], $item->getExtraData('highlighted_fields'));
   }
 

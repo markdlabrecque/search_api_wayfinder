@@ -1,12 +1,7 @@
 <?php
-// Minimal corpus for issue #80's index+fulltext round-trip check: one node
-// with a distinctive title/body term ("wayfinderroundtrip") that cannot
-// collide with default Drupal standard-profile content, plus a couple of
-// filler nodes so the query is proven to be selective, not just "anything
-// in the index comes back". Adapted (not copied verbatim -- trimmed to the
-// M1 plain-fulltext scope, no facet-bearing bundle split needed) from the
-// old worktree's create_content.php
-// (/Users/mark/Projects/wayfinder-57-search-api-wayfinder/drupal/search_api_wayfinder/tests/integration/create_content.php).
+// Deterministic corpus for issue #19's live capability checks: a target node
+// with a distinctive fulltext term, a related rocket document for facets and
+// MoreLikeThis, filler documents, and a file-only token for extraction.
 
 use Drupal\node\Entity\Node;
 
@@ -42,20 +37,36 @@ $target = Node::create([
     'value' => 'This node exists solely to prove the search_api_wayfinder round trip: index it into a real Wayfinder core, search for wayfinderroundtrip, get this node back.',
     'format' => 'basic_html',
   ],
+  'field_category' => ['rocket'],
   'status' => 1,
 ]);
 $target->save();
 echo "target node id: " . $target->id() . "\n";
 
+$related = Node::create([
+  'type' => 'article',
+  'title' => 'Rocket guidance for the beacon mission',
+  'body' => [
+    'value' => 'A related rocket report shares the beacon guidance vocabulary.',
+    'format' => 'basic_html',
+  ],
+  'field_category' => ['rocket'],
+  'status' => 1,
+]);
+$related->save();
+
+echo "related node id: " . $related->id() . "\n";
+
 $fillers = [
-  ['title' => 'A lazy afternoon in the garden', 'body' => 'Spent the afternoon reading in the garden.'],
-  ['title' => 'About our mission', 'body' => 'We build search infrastructure and believe in open standards.'],
+  ['title' => 'A lazy afternoon in the garden', 'body' => 'Spent the afternoon reading in the garden.', 'category' => 'garden'],
+  ['title' => 'About our mission', 'body' => 'We build search infrastructure and believe in open standards.', 'category' => 'mission'],
 ];
 foreach ($fillers as $data) {
   Node::create([
     'type' => 'article',
     'title' => $data['title'],
     'body' => ['value' => $data['body'], 'format' => 'basic_html'],
+    'field_category' => [$data['category']],
     'status' => 1,
   ])->save();
 }
@@ -70,6 +81,7 @@ $attached = Node::create([
     'value' => 'The body is innocuous prose. The searchable content is in the attachment only.',
     'format' => 'basic_html',
   ],
+  'field_category' => ['mission'],
   'field_attachments' => [
     ['target_id' => $file->id()],
   ],
@@ -77,5 +89,11 @@ $attached = Node::create([
 ]);
 $attached->save();
 echo "attachment node id: " . $attached->id() . " (file id " . $file->id() . ")\n";
+
+file_put_contents('/opt/drupal/wayfinder_fixture.json', json_encode([
+  'target_node_id' => $target->id(),
+  'related_node_id' => $related->id(),
+  'attachment_node_id' => $attached->id(),
+], JSON_THROW_ON_ERROR));
 
 echo "content created\n";
