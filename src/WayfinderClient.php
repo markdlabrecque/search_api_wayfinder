@@ -71,6 +71,15 @@ class WayfinderClient {
   }
 
   /**
+   * Reads server metadata from the core admin endpoint.
+   *
+   * @throws \Drupal\search_api\SearchApiException
+   */
+  public function adminSystem(): array {
+    return $this->get('admin/system', []);
+  }
+
+  /**
    * Reads terms from the indexed term dictionary.
    *
    * @throws \Drupal\search_api\SearchApiException
