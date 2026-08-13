@@ -33,7 +33,7 @@ README "Testing"). A standalone clone fails those classes on missing fixtures.
 - [x] [#11](https://github.com/markdlabrecque/search_api_wayfinder/issues/11) LinkedFileDiscoverer (independent)
 - [x] [#12](https://github.com/markdlabrecque/search_api_wayfinder/issues/12) FileExtractionProcessorBase + FileExtraction (needs #7, #8, #9, #10)
 - [x] [#13](https://github.com/markdlabrecque/search_api_wayfinder/issues/13) LinkedFileExtraction (needs #11, #12, #15)
-- [ ] [#14](https://github.com/markdlabrecque/search_api_wayfinder/issues/14) ExtractorQueue worker (needs #7, #9)
+- [x] [#14](https://github.com/markdlabrecque/search_api_wayfinder/issues/14) ExtractorQueue worker (needs #7, #9)
 - [x] [#15](https://github.com/markdlabrecque/search_api_wayfinder/issues/15) ExtractionInvalidator (needs #10)
 
 ## Phase 3 — autocomplete & hardening
