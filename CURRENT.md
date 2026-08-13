@@ -43,7 +43,7 @@ README "Testing"). A standalone clone fails those classes on missing fixtures.
 
 ## Phase 4 — infrastructure & verification
 
-- [ ] [#18](https://github.com/markdlabrecque/search_api_wayfinder/issues/18) CI workflow (can start any time; must handle the solr-ref checkout layout)
+- [x] [#18](https://github.com/markdlabrecque/search_api_wayfinder/issues/18) CI workflow (can start any time; must handle the solr-ref checkout layout)
 - [ ] [#19](https://github.com/markdlabrecque/search_api_wayfinder/issues/19) End-to-end integration harness run (after everything else)
 
 ## Definition of done
