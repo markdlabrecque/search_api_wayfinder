@@ -18,7 +18,7 @@ README "Testing"). A standalone clone fails those classes on missing fixtures.
 
 ## Phase 1 — core wire layer (dependency order)
 
-- [ ] [#2](https://github.com/markdlabrecque/search_api_wayfinder/issues/2) FieldMapper (foundation — everything depends on it)
+- [x] [#2](https://github.com/markdlabrecque/search_api_wayfinder/issues/2) FieldMapper (foundation — everything depends on it)
 - [ ] [#3](https://github.com/markdlabrecque/search_api_wayfinder/issues/3) WayfinderClient (independent of #2; parallelizable)
 - [ ] [#4](https://github.com/markdlabrecque/search_api_wayfinder/issues/4) DocumentBuilder (needs #2)
 - [ ] [#5](https://github.com/markdlabrecque/search_api_wayfinder/issues/5) QueryBuilder (needs #2; conventions shared with #6)
