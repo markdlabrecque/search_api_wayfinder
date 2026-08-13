@@ -28,7 +28,7 @@ README "Testing"). A standalone clone fails those classes on missing fixtures.
 ## Phase 2 — file extraction subsystem
 
 - [x] [#8](https://github.com/markdlabrecque/search_api_wayfinder/issues/8) ExtractFileValidator (independent)
-- [ ] [#9](https://github.com/markdlabrecque/search_api_wayfinder/issues/9) KeyValueExtractionCache (independent)
+- [x] [#9](https://github.com/markdlabrecque/search_api_wayfinder/issues/9) KeyValueExtractionCache (independent)
 - [ ] [#10](https://github.com/markdlabrecque/search_api_wayfinder/issues/10) FileReferenceMap (independent)
 - [ ] [#11](https://github.com/markdlabrecque/search_api_wayfinder/issues/11) LinkedFileDiscoverer (independent)
 - [ ] [#12](https://github.com/markdlabrecque/search_api_wayfinder/issues/12) FileExtractionProcessorBase + FileExtraction (needs #7, #8, #9, #10)
