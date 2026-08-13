@@ -1,5 +1,7 @@
 # search_api_wayfinder
 
+[![CI](https://github.com/markdlabrecque/search_api_wayfinder/actions/workflows/ci.yml/badge.svg)](https://github.com/markdlabrecque/search_api_wayfinder/actions/workflows/ci.yml)
+
 A [Search API](https://www.drupal.org/project/search_api) backend plugin
 (plugin id `wayfinder`) that indexes and queries a **Wayfinder** server — a
 Solr-wire-compatible search backend.
