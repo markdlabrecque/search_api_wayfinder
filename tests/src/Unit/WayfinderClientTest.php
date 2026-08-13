@@ -506,20 +506,22 @@ class WayfinderClientTest extends TestCase {
    * transport, same forced wt=json, same query-string encoding. Response
    * shape ({"suggest":{<dictionary>:{<query>:{"suggestions":[...]}}}}) is
    * ground truth from #384's captured fixture
-   * suggest_q_infix_en.json (extracted via `git show 6773c6f:solr-ref/
-   * responses/suggest_q_infix_en.json`, since this branch has not rebased
-   * onto #384's fixtures yet -- see the handoff note on WayfinderBackendTest
-   * test 12 for the full fixture body).
+   * solr-ref/responses/suggest_q_infix_en.json. Loading the fixture here (as
+   * the other transport tests do) guards against the copied response shape
+   * drifting away from the server repository's capture.
    *
    * @covers ::suggest
    */
   public function testSuggestReturnsDecodedBodyOn200(): void {
-    $body = '{"responseHeader":{"status":0,"QTime":12},"suggest":{"en":{"fox":{"numFound":2,"suggestions":[{"term":"quick brown <b>fox</b>","weight":0,"payload":""}]}}}}';
+    $body = (string) file_get_contents(__DIR__ . '/../../../../../solr-ref/responses/suggest_q_infix_en.json');
     $client = $this->clientWithResponses([new Response(200, [], $body)]);
 
     $result = $client->suggest(['suggest' => 'true', 'suggest.q' => 'fox', 'suggest.dictionary' => 'en']);
 
-    $this->assertSame('quick brown <b>fox</b>', $result['suggest']['en']['fox']['suggestions'][0]['term']);
+    $this->assertSame(
+      ['quick brown <b>fox</b>', 'the quick <b>fox</b> jumps over the lazy dog'],
+      array_column($result['suggest']['en']['fox']['suggestions'], 'term'),
+    );
   }
 
   /**

@@ -14,6 +14,7 @@ use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Item\FieldInterface;
+use Drupal\search_api\Item\ItemInterface;
 use Drupal\search_api\Query\ConditionGroup;
 use Drupal\search_api\Query\QueryInterface;
 use Drupal\search_api\Query\ResultSet;
@@ -1025,11 +1026,10 @@ class WayfinderBackendTest extends TestCase {
    * `SuggestionInterface[]` via `createFromSuggestedKeys($entry['term'])`, in
    * response order -- mirroring `Suggester.php::
    * getAutocompleteSuggesterSuggestions` (:301-317). The response body below
-   * is #384's captured fixture `suggest_q_infix_en.json` (extracted via
-   * `git show 6773c6f:solr-ref/responses/suggest_q_infix_en.json` -- this
-   * branch has not rebased onto #384's fixture commits yet, see the handoff
-   * note), decoded to the PHP array `WayfinderClient::suggest()` would
-   * return. `<b>` markup passes through verbatim because `suggest.highlight`
+   * matches #384's captured fixture `suggest_q_infix_en.json`, decoded to the
+   * PHP array `WayfinderClient::suggest()` returns. The client-level test loads
+   * that fixture directly; this backend-level test isolates parser behavior.
+   * `<b>` markup passes through verbatim because `suggest.highlight`
    * is sent 'false' by the builder but Solr's own highlighting on `/suggest`
    * lookups is independent -- premise 4: the parser must not assume or strip
    * markup.
@@ -1175,6 +1175,144 @@ class WayfinderBackendTest extends TestCase {
 
     $backend = $this->backendWithClient($client);
     $this->assertSame([], $backend->getSuggesterAutocompleteSuggestions($query, 'fox', []));
+  }
+
+  /**
+   * @covers ::indexItems
+   */
+  public function testIndexItemsBuildsAndSendsEveryDocumentWithCommitWithin(): void {
+    $index = $this->createMock(IndexInterface::class);
+    $index->method('id')->willReturn('content');
+    $first = $this->indexItem('entity:node/1:en', 'en');
+    $second = $this->indexItem('entity:node/2:fr', 'fr');
+
+    $updates = [];
+    $client = $this->createMock(WayfinderClient::class);
+    $client->expects($this->exactly(2))
+      ->method('update')
+      ->willReturnCallback(function (array $command, array $options) use (&$updates): array {
+        $updates[] = [$command, $options];
+        return [];
+      });
+
+    $backend = $this->backendWithClient($client, ['commitWithin' => 250]);
+
+    $this->assertSame(
+      ['entity:node/1:en', 'entity:node/2:fr'],
+      $backend->indexItems($index, [
+        'entity:node/1:en' => $first,
+        'entity:node/2:fr' => $second,
+      ]),
+    );
+    $this->assertSame(
+      ['content-entity:node/1:en', 'content-entity:node/2:fr'],
+      array_map(static fn (array $call): string => $call[0]['add']['doc']['id'], $updates),
+    );
+    $this->assertSame([['commitWithin' => 250], ['commitWithin' => 250]], array_column($updates, 1));
+  }
+
+  /**
+   * @covers ::indexItems
+   */
+  public function testIndexItemsPropagatesUpdateFailureAndStopsTheBatch(): void {
+    $index = $this->createMock(IndexInterface::class);
+    $index->method('id')->willReturn('content');
+    $client = $this->createMock(WayfinderClient::class);
+    $client->expects($this->once())
+      ->method('update')
+      ->willThrowException(new SearchApiException('update failed'));
+
+    $this->expectException(SearchApiException::class);
+    $this->expectExceptionMessage('update failed');
+
+    $this->backendWithClient($client)->indexItems($index, [
+      'first' => $this->indexItem('first', 'en'),
+      'second' => $this->indexItem('second', 'en'),
+    ]);
+  }
+
+  /**
+   * @covers ::deleteItems
+   */
+  public function testDeleteItemsPrefixesEveryItemIdWithTheIndexId(): void {
+    $index = $this->createMock(IndexInterface::class);
+    $index->method('id')->willReturn('content');
+    $client = $this->createMock(WayfinderClient::class);
+    $client->expects($this->once())
+      ->method('update')
+      ->with(['delete' => ['content-entity:node/1:en', 'content-entity:node/2:fr']])
+      ->willReturn([]);
+
+    $this->backendWithClient($client)->deleteItems($index, ['entity:node/1:en', 'entity:node/2:fr']);
+  }
+
+  /**
+   * @covers ::deleteAllIndexItems
+   * @dataProvider deleteAllQueryProvider
+   */
+  public function testDeleteAllIndexItemsUsesAnIndexScopedDeleteQuery(?string $datasourceId, string $expectedQuery): void {
+    $index = $this->createMock(IndexInterface::class);
+    $index->method('id')->willReturn('content');
+    $client = $this->createMock(WayfinderClient::class);
+    $client->expects($this->once())
+      ->method('update')
+      ->with(['delete' => ['query' => $expectedQuery]])
+      ->willReturn([]);
+
+    $this->backendWithClient($client)->deleteAllIndexItems($index, $datasourceId);
+  }
+
+  public static function deleteAllQueryProvider(): array {
+    return [
+      'whole index' => [NULL, 'index_id:"content"'],
+      'one datasource' => ['entity:node', 'index_id:"content" AND ss_search_api_datasource:"entity:node"'],
+    ];
+  }
+
+  /**
+   * @covers ::removeIndex
+   */
+  public function testRemoveIndexDeletesAllDocumentsForWritableIndexOnly(): void {
+    $writable = $this->createMock(IndexInterface::class);
+    $writable->method('id')->willReturn('content');
+    $writable->method('isReadOnly')->willReturn(FALSE);
+    $readonly = $this->createMock(IndexInterface::class);
+    $readonly->method('isReadOnly')->willReturn(TRUE);
+    $client = $this->createMock(WayfinderClient::class);
+    $client->expects($this->once())
+      ->method('update')
+      ->with(['delete' => ['query' => 'index_id:"content"']])
+      ->willReturn([]);
+    $backend = $this->backendWithClient($client);
+
+    $backend->removeIndex($writable);
+    $backend->removeIndex($readonly);
+    $backend->removeIndex('content');
+  }
+
+  /**
+   * @covers ::isAvailable
+   */
+  public function testIsAvailableReflectsPingAndDegradesThrownErrorsToFalse(): void {
+    $available = $this->createMock(WayfinderClient::class);
+    $available->expects($this->once())->method('ping')->willReturn(TRUE);
+    $unavailable = $this->createMock(WayfinderClient::class);
+    $unavailable->expects($this->once())->method('ping')->willReturn(FALSE);
+    $broken = $this->createMock(WayfinderClient::class);
+    $broken->expects($this->once())->method('ping')->willThrowException(new \RuntimeException('broken'));
+
+    $this->assertTrue($this->backendWithClient($available)->isAvailable());
+    $this->assertFalse($this->backendWithClient($unavailable)->isAvailable());
+    $this->assertFalse($this->backendWithClient($broken)->isAvailable());
+  }
+
+  private function indexItem(string $id, string $language): ItemInterface {
+    $item = $this->createMock(ItemInterface::class);
+    $item->method('getId')->willReturn($id);
+    $item->method('getDatasourceId')->willReturn('entity:node');
+    $item->method('getLanguage')->willReturn($language);
+    $item->method('getFields')->willReturn([]);
+    return $item;
   }
 
 }
