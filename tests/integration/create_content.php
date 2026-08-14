@@ -110,6 +110,21 @@ foreach ($fillers as $data) {
   ])->save();
 }
 
+// Two byte-identical keyword fixtures make the relevance tie-break contract
+// observable: equal scores must fall through to title and then item id.
+foreach (['mission', 'mission'] as $category) {
+  Node::create([
+    'type' => 'article',
+    'title' => 'Wayfinder deterministic tie fixture',
+    'body' => [
+      'value' => 'wayfinderdeterministictie',
+      'format' => 'basic_html',
+    ],
+    'field_category' => [$category],
+    'status' => 1,
+  ])->save();
+}
+
 // The attachment node: its title/body deliberately do NOT contain the token,
 // so the only way the token can be found by search is through the extracted
 // file content. This is the end of the #262 vertical slice.

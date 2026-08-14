@@ -11,6 +11,7 @@
 // silently reporting "0 results" as if that were fine.
 
 use Drupal\search_api\Entity\Index;
+use Drupal\search_api\Query\QueryInterface;
 
 $index = Index::load('wf19_index');
 if (!$index) {
@@ -128,6 +129,137 @@ try {
 }
 catch (\Throwable $e) {
   echo "WIRE_QF/RANKING: FAIL - " . get_class($e) . ': ' . $e->getMessage() . "\n";
+  $exit_code = 1;
+}
+
+/**
+ * Return the live result rows with the indexed title beside the Search API
+ * item score. The response projection intentionally contains only id/score,
+ * so loading the entity title here keeps this assertion independent of any
+ * extra stored-field projection.
+ */
+function ordering_rows($results): array {
+  $rows = [];
+  foreach ($results->getResultItems() as $id => $item) {
+    if (!preg_match('#^entity:node/(\d+):#', $id, $matches)) {
+      throw new \RuntimeException("unexpected result item id: $id");
+    }
+    $node = \Drupal\node\Entity\Node::load((int) $matches[1]);
+    if (!$node) {
+      throw new \RuntimeException("result item node is missing: $id");
+    }
+    $rows[] = [
+      'id' => $id,
+      'title' => (string) $node->label(),
+      'score' => (float) $item->getScore(),
+    ];
+  }
+  return $rows;
+}
+
+/**
+ * Assert the same ordered id sequence on repeated match-all/category-only
+ * requests and independently verify title then id ordering for equal scores.
+ */
+function assert_browse_order($index, $category = NULL): bool {
+  $sequences = [];
+  $first_rows = [];
+  for ($attempt = 0; $attempt < 3; $attempt++) {
+    $query = $index->query();
+    $query->keys(NULL);
+    $query->setFulltextFields(['title', 'body']);
+    $query->sort('search_api_relevance', QueryInterface::SORT_DESC)
+      ->sort('title', QueryInterface::SORT_ASC)
+      ->sort('search_api_id', QueryInterface::SORT_ASC);
+    if ($category !== NULL) {
+      $query->addCondition('category', $category);
+    }
+    $rows = ordering_rows($query->execute());
+    if ($rows === []) {
+      throw new \RuntimeException('browse query returned no rows');
+    }
+    $sequences[] = array_column($rows, 'id');
+    if ($attempt === 0) {
+      $first_rows = $rows;
+    }
+  }
+
+  $expected = $first_rows;
+  usort($expected, static function (array $left, array $right): int {
+    return strcmp($left['title'], $right['title']) ?: strcmp($left['id'], $right['id']);
+  });
+  $expected_ids = array_column($expected, 'id');
+  foreach ($sequences as $sequence) {
+    if ($sequence !== $sequences[0]) {
+      return FALSE;
+    }
+    if ($sequence !== $expected_ids) {
+      return FALSE;
+    }
+  }
+
+  $label = $category === NULL ? 'EMPTY' : 'CATEGORY';
+  echo $label . ': PASS - repeated ordered IDs [' . implode(', ', $sequences[0]) . "]\n";
+  return TRUE;
+}
+
+/**
+ * Keyword evidence must retain descending score order and use title/id only
+ * inside score ties. The identical tie fixtures in create_content.php ensure
+ * this guard exercises the tertiary item-id comparison in a live run.
+ */
+function assert_keyword_order($index, $pmm): bool {
+  $query = $index->query();
+  $query->setParseMode($pmm->createInstance('terms'));
+  $query->keys('wayfinderdeterministictie');
+  $query->setFulltextFields(['title', 'body']);
+  $query->sort('search_api_relevance', QueryInterface::SORT_DESC)
+    ->sort('title', QueryInterface::SORT_ASC)
+    ->sort('search_api_id', QueryInterface::SORT_ASC);
+  $rows = ordering_rows($query->execute());
+  if (count($rows) < 2) {
+    return FALSE;
+  }
+
+  $ties = 0;
+  for ($i = 1; $i < count($rows); $i++) {
+    if ($rows[$i]['score'] > $rows[$i - 1]['score'] + 1e-9) {
+      return FALSE;
+    }
+    if (abs($rows[$i]['score'] - $rows[$i - 1]['score']) <= 1e-9) {
+      $ties++;
+      if (strcmp($rows[$i - 1]['title'], $rows[$i]['title']) > 0 ||
+          (strcmp($rows[$i - 1]['title'], $rows[$i]['title']) === 0 &&
+           strcmp($rows[$i - 1]['id'], $rows[$i]['id']) > 0)) {
+        return FALSE;
+      }
+    }
+  }
+  if ($ties === 0) {
+    return FALSE;
+  }
+
+  $score_evidence = array_map(static fn (array $row): string => $row['id'] . '=' . $row['score'], $rows);
+  echo 'KEYWORD: PASS - non-increasing scores/tie order [' . implode(', ', $score_evidence) . "]\n";
+  return TRUE;
+}
+
+try {
+  if (!assert_browse_order($index)) {
+    echo "ORDERING: FAIL - repeated empty-query IDs were not title/id ordered\n";
+    $exit_code = 1;
+  }
+  if (!assert_browse_order($index, 'rocket')) {
+    echo "ORDERING: FAIL - repeated category-only IDs were not title/id ordered\n";
+    $exit_code = 1;
+  }
+  if (!assert_keyword_order($index, $pmm)) {
+    echo "ORDERING: FAIL - keyword relevance/tie ordering evidence was invalid\n";
+    $exit_code = 1;
+  }
+}
+catch (\Throwable $e) {
+  echo 'ORDERING: FAIL - ' . get_class($e) . ': ' . $e->getMessage() . "\n";
   $exit_code = 1;
 }
 
