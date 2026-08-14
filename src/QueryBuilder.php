@@ -269,7 +269,7 @@ class QueryBuilder {
         $parts[] = $part;
       }
     }
-    $combined = implode(($keys['#conjunction'] ?? 'AND') === 'OR' ? ' OR ' : ' ', $parts);
+    $combined = implode(($keys['#conjunction'] ?? 'AND') === 'OR' ? ' OR ' : ' AND ', $parts);
     if (!empty($keys['#negation'])) {
       return count($parts) > 1 ? '-(' . $combined . ')' : '-' . $combined;
     }

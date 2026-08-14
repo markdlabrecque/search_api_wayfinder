@@ -257,7 +257,7 @@ class QueryBuilderTest extends TestCase {
   /**
    * @covers ::build
    */
-  public function testAndConjunctionKeysAreSpaceJoined(): void {
+  public function testAndConjunctionKeysAreJoinedWithExplicitAnd(): void {
     $index = $this->mockIndex(['title'], [
       'title' => $this->mockIndexField('title', 'text', FALSE),
     ]);
@@ -270,7 +270,25 @@ class QueryBuilderTest extends TestCase {
 
     $params = (new QueryBuilder())->build($query);
 
-    $this->assertSame('quick fox', $params['q']);
+    $this->assertSame('quick AND fox', $params['q']);
+  }
+
+  /**
+   * @covers ::build
+   */
+  public function testDefaultConjunctionKeysAreJoinedWithExplicitAnd(): void {
+    $index = $this->mockIndex(['title'], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $keys = [
+      0 => 'quick',
+      1 => 'fox',
+    ];
+    $query = $this->mockQuery($keys, NULL, $index);
+
+    $params = (new QueryBuilder())->build($query);
+
+    $this->assertSame('quick AND fox', $params['q']);
   }
 
   /**
@@ -311,7 +329,7 @@ class QueryBuilderTest extends TestCase {
 
     $params = (new QueryBuilder())->build($query);
 
-    $this->assertSame('quick -banned', $params['q']);
+    $this->assertSame('quick AND -banned', $params['q']);
   }
 
   /**
@@ -539,7 +557,7 @@ class QueryBuilderTest extends TestCase {
 
     $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
 
-    $this->assertSame('quick (cat OR dog) -(banned forbidden)', $params['q']);
+    $this->assertSame('quick AND (cat OR dog) AND -(banned AND forbidden)', $params['q']);
   }
 
   /**
