@@ -274,6 +274,10 @@ class QueryBuilder {
         $parts[] = $part;
       }
     }
+    // Preserve Search API's parsed conjunction explicitly. Wayfinder's
+    // eDisMax parser treats bare whitespace as OR, even when the Search API
+    // keys array says AND, so relying on the parser default broadens every
+    // multi-term AND query (see #39).
     $combined = implode(($keys['#conjunction'] ?? 'AND') === 'OR' ? ' OR ' : ' AND ', $parts);
     if (!empty($keys['#negation'])) {
       return count($parts) > 1 ? '-(' . $combined . ')' : '-' . $combined;

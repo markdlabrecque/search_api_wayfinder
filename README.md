@@ -33,6 +33,94 @@ autocomplete and spellcheck suggesters this module ships only load when that
 module is installed, so it is deliberately absent from
 `search_api_wayfinder.info.yml`. Install it yourself if you want autocomplete.
 
+## Quickstart (DDEV + Drupal)
+
+This is the shortest reproducible integration path. It assumes a Drupal 10.3+
+or Drupal 11 site built from `drupal/recommended-project`, Composer 2, and
+DDEV with Docker available. The Drupal site must be installed before enabling
+Search API modules; this module does not install Drupal or configure a site.
+
+1. From the Drupal project root, install the Wayfinder DDEV service and verify
+   the service before touching Drupal:
+
+   ```bash
+   ddev add-on get markdlabrecque/ddev-wayfinder
+   ddev restart
+   ddev wayfinder ping
+   ddev wayfinder system
+   ```
+
+   The add-on uses the `search-api` schema, core `content`, and exposes Wayfinder
+   to the Drupal web container as `http://wayfinder:8983`. Do not use
+   `localhost`: Drupal runs in a different container. The Search API base path
+   is `/wayfinder`, not `/solr`.
+
+2. Install this module using the GitHub VCS repository (the package is not on
+   Packagist or Drupal.org), then enable both Search API and this backend:
+
+   ```bash
+   ddev composer config repositories.search_api_wayfinder vcs https://github.com/markdlabrecque/search_api_wayfinder
+   ddev composer require wayfinder/search_api_wayfinder:dev-main
+   ddev drush en search_api search_api_wayfinder -y
+   ddev drush cr
+   ```
+
+3. Add a Search API server at **Configuration → Search and metadata → Search
+   API → Add server**, selecting **Wayfinder** (not a Solr backend). Use these
+   exact values:
+
+   | Setting | Value |
+   | --- | --- |
+   | HTTP protocol | `http` |
+   | Host | `wayfinder` |
+   | Port | `8983` |
+   | Base path | `/wayfinder` |
+   | Core | `content` |
+
+   Leave authentication empty unless the Wayfinder service was explicitly
+   configured with `[auth]`. Saving the server must pass its availability check;
+   its View page should show the server URL and Wayfinder version.
+
+4. Add an index for an available content entity/bundle. For a deterministic
+   smoke corpus, index node title and body as **text**, one controlled list or
+   taxonomy field as **string**, and enable the `wayfinder_file_extraction`
+   processor if testing attachments. Save the index, create known content, and
+   run:
+
+   ```bash
+   ddev drush search-api:index <index-id>
+   ddev drush search-api:status
+   ```
+
+   A committed Drupal configuration export (including the server, index, field
+   definitions, and processor settings) is the reproducible way to preserve
+   this setup. Export it after saving the index with
+   `ddev drush config:export -y`. Restore a fresh database from that export with
+   `ddev drush site:install --existing-config -y` after Composer has installed
+   all required modules. Use `ddev drush config:import -y` for an already-
+   installed copy of the same site; importing into an unrelated site requires
+   matching site UUIDs and can replace its configuration.
+
+5. Check the complete path, not just the ping: search for a distinctive token
+   through Drupal's Search API query UI or query API, verify a facet/filter or
+   sort, and inspect the Wayfinder side with `ddev wayfinder ui` and
+   `ddev logs -s wayfinder`. For an attachment check, put a unique token only
+   in a small text file, attach it to indexed content, reindex, and search the
+   processor's extracted-text field. Inline extraction runs during indexing;
+   queued extraction can be drained with
+   `ddev drush queue:run wayfinder_extraction`.
+
+When validating deletion, allow the backend/server to perform an explicit
+commit before querying again. The current backend's `deleteItems()` update does
+not send `commitWithin`; a Wayfinder service with autocommit disabled can
+therefore keep a deleted document query-visible. Adds use `commitWithin` as
+configured on the server. This is an upstream behavior to fix rather than a
+Drupal setup step.
+
+`drupal/search_api_autocomplete` is optional. Install it separately only when
+suggestions are part of the smoke check, then configure the Wayfinder suggester
+on an autocomplete search as described below.
+
 ## Install
 
 The module is published only from GitHub — it is on neither Packagist nor

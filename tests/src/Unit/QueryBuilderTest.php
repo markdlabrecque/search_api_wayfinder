@@ -270,6 +270,8 @@ class QueryBuilderTest extends TestCase {
 
     $params = (new QueryBuilder())->build($query);
 
+    // Wayfinder's eDisMax parser treats whitespace as OR. The explicit
+    // operator is required to preserve Search API's parsed AND semantics.
     $this->assertSame('quick AND fox', $params['q']);
   }
 
