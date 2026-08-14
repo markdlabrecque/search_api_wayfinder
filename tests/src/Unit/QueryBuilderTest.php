@@ -292,6 +292,51 @@ class QueryBuilderTest extends TestCase {
   }
 
   /**
+   * A top-level Search API AND array supplies the conjunction metadata; a
+   * scalar Boolean keyword remains a quoted literal user term.
+   *
+   * @covers ::build
+   * @dataProvider literalBooleanKeywordProvider
+   */
+  public function testTopLevelAndArrayQuotesBooleanKeywordLiterals(string $keyword): void {
+    $index = $this->mockIndex(['title'], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $keys = [
+      '#conjunction' => 'AND',
+      0 => 'causa',
+      1 => $keyword,
+      2 => 'duis',
+    ];
+
+    $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
+
+    $this->assertSame('causa AND "' . $keyword . '" AND duis', $params['q']);
+  }
+
+  /**
+   * The exact Search API top-level AND-array shape controls the separators;
+   * all three Boolean-looking scalar values remain literal terms.
+   *
+   * @covers ::build
+   */
+  public function testExactTopLevelAndArrayKeepsBooleanKeywordsLiteral(): void {
+    $index = $this->mockIndex(['title'], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $keys = [
+      '#conjunction' => 'AND',
+      0 => 'AND',
+      1 => 'OR',
+      2 => 'NOT',
+    ];
+
+    $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
+
+    $this->assertSame('"AND" AND "OR" AND "NOT"', $params['q']);
+  }
+
+  /**
    * @covers ::build
    */
   public function testMultiWordTermIsQuotedAsPhrase(): void {
@@ -558,6 +603,71 @@ class QueryBuilderTest extends TestCase {
     $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
 
     $this->assertSame('quick AND (cat OR dog) AND -(banned AND forbidden)', $params['q']);
+  }
+
+  /**
+   * eDisMax treats an unquoted top-level AND/OR/NOT as query syntax. Search
+   * API terms are user values, however, so array metadata must supply the
+   * operator and each Boolean keyword value must remain a literal term.
+   * The live Wayfinder probe established the quoted representation as a
+   * parse-valid literal for all three keywords.
+   *
+   * @covers ::build
+   * @dataProvider literalBooleanKeywordProvider
+   */
+  public function testTopLevelBooleanKeywordTermsAreQuotedLiterals(string $keyword): void {
+    $index = $this->mockIndex(['title'], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $keys = [
+      '#conjunction' => 'OR',
+      0 => 'causa',
+      1 => $keyword,
+      2 => 'duis',
+    ];
+
+    $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
+
+    $this->assertSame('causa OR "' . $keyword . '" OR duis', $params['q']);
+  }
+
+  /**
+   * Boolean keyword literals retain their value inside an OR group and a
+   * nested negated group; only the containing arrays control OR, AND, and
+   * negation. This covers the nested/negated shapes emitted by Search API.
+   *
+   * @covers ::build
+   */
+  public function testNestedAndNegatedBooleanKeywordTermsAreQuotedLiterals(): void {
+    $index = $this->mockIndex(['title'], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $keys = [
+      '#conjunction' => 'AND',
+      0 => [
+        '#conjunction' => 'OR',
+        0 => 'AND',
+        1 => 'OR',
+      ],
+      1 => [
+        '#conjunction' => 'AND',
+        '#negation' => TRUE,
+        0 => 'NOT',
+        1 => 'duis',
+      ],
+    ];
+
+    $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
+
+    $this->assertSame('("AND" OR "OR") AND -("NOT" AND duis)', $params['q']);
+  }
+
+  public static function literalBooleanKeywordProvider(): array {
+    return [
+      'AND' => ['AND'],
+      'OR' => ['OR'],
+      'NOT' => ['NOT'],
+    ];
   }
 
   /**

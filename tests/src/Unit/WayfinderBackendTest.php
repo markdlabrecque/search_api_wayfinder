@@ -31,6 +31,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -91,13 +92,16 @@ class WayfinderBackendTest extends TestCase {
    *   note on QueryBuilderTest's hl tests: this is a config setting, not a
    *   query option, per search_api_solr's own convention).
    */
-  private function backendWithClient(WayfinderClient $client, array $configuration = []): WayfinderBackend {
-    return new class($configuration, 'wayfinder', [], $client) extends WayfinderBackend {
+  private function backendWithClient(WayfinderClient $client, array $configuration = [], ?LoggerInterface $logger = NULL): WayfinderBackend {
+    return new class($configuration, 'wayfinder', [], $client, $logger) extends WayfinderBackend {
       private WayfinderClient $testClient;
 
-      public function __construct(array $configuration, $plugin_id, array $plugin_definition, WayfinderClient $client) {
+      public function __construct(array $configuration, $plugin_id, array $plugin_definition, WayfinderClient $client, ?LoggerInterface $logger) {
         parent::__construct($configuration, $plugin_id, $plugin_definition);
         $this->testClient = $client;
+        if ($logger !== NULL) {
+          $this->setLogger($logger);
+        }
       }
 
       protected function getClient(): WayfinderClient {
@@ -415,6 +419,43 @@ class WayfinderBackendTest extends TestCase {
 
     $backend = $this->backendWithClient($client);
     $backend->search($query);
+  }
+
+  /**
+   * Search failures remain visible to Drupal's logger and the original
+   * SearchApiException is rethrown unchanged so Search API can handle it.
+   *
+   * @covers ::search
+   */
+  public function testSearchLogsAndRethrowsBackendFailureUnchanged(): void {
+    $index = $this->mockIndex();
+    $query = $this->mockQuery($index);
+    $failure = new SearchApiException('Wayfinder parse failure');
+
+    $client = $this->createMock(WayfinderClient::class);
+    $client->expects($this->once())
+      ->method('select')
+      ->willThrowException($failure);
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger->expects($this->once())
+      ->method('error')
+      ->with(
+        'Wayfinder search failed: @message',
+        $this->callback(fn (array $context): bool =>
+          ($context['@message'] ?? NULL) === 'Wayfinder parse failure'
+          && ($context['exception'] ?? NULL) === $failure
+        ),
+      );
+
+    $backend = $this->backendWithClient($client, [], $logger);
+
+    try {
+      $backend->search($query);
+      $this->fail('search() must rethrow the backend failure.');
+    }
+    catch (SearchApiException $actual) {
+      $this->assertSame($failure, $actual);
+    }
   }
 
   /**

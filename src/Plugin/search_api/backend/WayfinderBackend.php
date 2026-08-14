@@ -45,6 +45,10 @@ class WayfinderBackend extends BackendPluginBase implements PluginFormInterface 
     $plugin = parent::create($container, $configuration, $plugin_id, $plugin_definition);
     $plugin->httpClient = $container->get('http_client');
     $plugin->languageManager = $container->get('language_manager');
+    $logger = $container->get('logger.channel.search_api_wayfinder');
+    if ($logger instanceof \Psr\Log\LoggerInterface) {
+      $plugin->setLogger($logger);
+    }
     return $plugin;
   }
 
@@ -301,16 +305,25 @@ class WayfinderBackend extends BackendPluginBase implements PluginFormInterface 
    * {@inheritdoc}
    */
   public function search(QueryInterface $query): void {
-    $builder = $this->queryBuilder();
-    $client = $this->getClient();
+    try {
+      $builder = $this->queryBuilder();
+      $client = $this->getClient();
 
-    if ($query->getOption('search_api_mlt')) {
-      $response = $client->mlt($builder->buildMlt($query));
+      if ($query->getOption('search_api_mlt')) {
+        $response = $client->mlt($builder->buildMlt($query));
+      }
+      else {
+        $response = $client->select($builder->build($query, !empty($this->configuration['highlight'])));
+      }
+      (new ResponseParser($this->languageManager))->parse($response, $query);
     }
-    else {
-      $response = $client->select($builder->build($query, !empty($this->configuration['highlight'])));
+    catch (SearchApiException $e) {
+      $this->getLogger()->error('Wayfinder search failed: @message', [
+        '@message' => $e->getMessage(),
+        'exception' => $e,
+      ]);
+      throw $e;
     }
-    (new ResponseParser($this->languageManager))->parse($response, $query);
   }
 
   /**
