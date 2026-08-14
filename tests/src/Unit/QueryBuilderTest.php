@@ -315,6 +315,28 @@ class QueryBuilderTest extends TestCase {
   }
 
   /**
+   * The exact Search API top-level AND-array shape controls the separators;
+   * all three Boolean-looking scalar values remain literal terms.
+   *
+   * @covers ::build
+   */
+  public function testExactTopLevelAndArrayKeepsBooleanKeywordsLiteral(): void {
+    $index = $this->mockIndex(['title'], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $keys = [
+      '#conjunction' => 'AND',
+      0 => 'AND',
+      1 => 'OR',
+      2 => 'NOT',
+    ];
+
+    $params = (new QueryBuilder())->build($this->mockQuery($keys, NULL, $index));
+
+    $this->assertSame('"AND" AND "OR" AND "NOT"', $params['q']);
+  }
+
+  /**
    * @covers ::build
    */
   public function testMultiWordTermIsQuotedAsPhrase(): void {
