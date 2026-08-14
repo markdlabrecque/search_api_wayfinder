@@ -50,6 +50,63 @@ catch (\Drupal\search_api\SearchApiException $e) {
 }
 echo "AUTH: PASS - public ping and exact unauthenticated select failure verified\n";
 
+// Keep these operator probes isolated from the broader round-trip checks. A
+// Wayfinder parse failure must be reported as a failed search, not converted
+// into a plausible empty result set by the harness. The expected counts are
+// derived from this script's five-node fixture and Wayfinder's eDisMax
+// negative-only query behavior: causa and duis are absent, and the
+// negative-only NOT causa query has no positive clause to select documents.
+foreach ([
+  'causa OR duis' => 0,
+  'causa AND duis' => 0,
+  'NOT causa' => 0,
+] as $expression => $expected_count) {
+  try {
+    $query = $index->query();
+    $query->setParseMode($pmm->createInstance('terms'));
+    $query->keys($expression);
+    $query->setFulltextFields(['title', 'body']);
+    $results = $query->execute();
+    $count = $results->getResultCount();
+    echo "literal_operator_probe [$expression]: $count results\n";
+    if ($count !== $expected_count) {
+      echo "literal_operator_probe [$expression]: FAIL - expected $expected_count results from the deterministic fixture\n";
+      $exit_code = 1;
+    }
+  }
+  catch (\Throwable $e) {
+    echo "literal_operator_probe [$expression]: FAIL - " . get_class($e) . ': ' . $e->getMessage() . "\n";
+    $exit_code = 1;
+  }
+}
+
+// Issue #39's explicit-AND regression uses words that are present in the
+// actual fixture, rather than stale corpus assumptions: only the related node
+// contains both "beacon" and "guidance"; no fixture node contains both
+// "rocket" and "unrelated" or both "garden" and "report".
+foreach ([
+  'beacon guidance' => 1,
+  'rocket unrelated' => 0,
+  'garden report' => 0,
+] as $expression => $expected_count) {
+  try {
+    $query = $index->query();
+    $query->setParseMode($pmm->createInstance('terms'));
+    $query->keys($expression);
+    $query->setFulltextFields(['title', 'body']);
+    $count = $query->execute()->getResultCount();
+    echo "explicit_and_probe [$expression]: $count results\n";
+    if ($count !== $expected_count) {
+      echo "explicit_and_probe [$expression]: FAIL - expected $expected_count results from the deterministic fixture\n";
+      $exit_code = 1;
+    }
+  }
+  catch (\Throwable $e) {
+    echo "explicit_and_probe [$expression]: FAIL - " . get_class($e) . ': ' . $e->getMessage() . "\n";
+    $exit_code = 1;
+  }
+}
+
 try {
   $query = $index->query();
   $query->setParseMode($pmm->createInstance('terms'));

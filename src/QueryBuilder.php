@@ -255,6 +255,11 @@ class QueryBuilder {
 
   private function flattenKeys($keys, bool $nested = FALSE): string {
     if (is_string($keys)) {
+      // Search API terms are values, so Boolean keywords must not be treated
+      // as eDisMax operators. Array metadata supplies the actual operator.
+      if (in_array($keys, ['AND', 'OR', 'NOT'], TRUE)) {
+        return '"' . $keys . '"';
+      }
       $special = ['\\', '+', '-', '&&', '||', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':', '/'];
       $escaped = str_replace($special, array_map(static fn ($char) => '\\' . $char, $special), $keys);
       return preg_match('/\s/', $escaped) ? '"' . $escaped . '"' : $escaped;
