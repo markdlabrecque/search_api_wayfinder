@@ -47,7 +47,7 @@ $related = Node::create([
   'type' => 'article',
   'title' => 'Rocket guidance for the beacon mission',
   'body' => [
-    'value' => 'A related rocket report shares the beacon guidance vocabulary.',
+    'value' => 'A related rocket document shares the beacon guidance vocabulary.',
     'format' => 'basic_html',
   ],
   'field_category' => ['rocket'],
@@ -56,6 +56,45 @@ $related = Node::create([
 $related->save();
 
 echo "related node id: " . $related->id() . "\n";
+
+// Issue #41 relevance corpus: exactly two title-only matches and one
+// body-only match for `report`. No other fixture title/body contains the
+// token, so a title boost has an observable ordering contract.
+$report_title_a = Node::create([
+  'type' => 'article',
+  'title' => 'Annual report for the beacon mission',
+  'body' => [
+    'value' => 'A publication about navigation and planning.',
+    'format' => 'basic_html',
+  ],
+  'field_category' => ['mission'],
+  'status' => 1,
+]);
+$report_title_a->save();
+
+$report_title_b = Node::create([
+  'type' => 'article',
+  'title' => 'Financial report overview',
+  'body' => [
+    'value' => 'A publication about budgets and planning.',
+    'format' => 'basic_html',
+  ],
+  'field_category' => ['mission'],
+  'status' => 1,
+]);
+$report_title_b->save();
+
+$report_body = Node::create([
+  'type' => 'article',
+  'title' => 'Research archive',
+  'body' => [
+    'value' => 'The report is stored in the body of this document.',
+    'format' => 'basic_html',
+  ],
+  'field_category' => ['mission'],
+  'status' => 1,
+]);
+$report_body->save();
 
 $fillers = [
   ['title' => 'A lazy afternoon in the garden', 'body' => 'Spent the afternoon reading in the garden.', 'category' => 'garden'],
@@ -76,7 +115,7 @@ foreach ($fillers as $data) {
 // file content. This is the end of the #262 vertical slice.
 $attached = Node::create([
   'type' => 'article',
-  'title' => 'A report attached, nothing searchable in the title',
+  'title' => 'An attached document with no relevance term',
   'body' => [
     'value' => 'The body is innocuous prose. The searchable content is in the attachment only.',
     'format' => 'basic_html',
@@ -94,6 +133,9 @@ file_put_contents('/opt/drupal/wayfinder_fixture.json', json_encode([
   'target_node_id' => $target->id(),
   'related_node_id' => $related->id(),
   'attachment_node_id' => $attached->id(),
+  'report_title_a_id' => $report_title_a->id(),
+  'report_title_b_id' => $report_title_b->id(),
+  'report_body_id' => $report_body->id(),
 ], JSON_THROW_ON_ERROR));
 
 echo "content created\n";

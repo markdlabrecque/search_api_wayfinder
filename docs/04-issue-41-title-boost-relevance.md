@@ -16,6 +16,22 @@ Make tester relevance intentional and reproducible: title matches use boost `3`,
 6. Run harness contract, full PHPUnit, single live harness, and overlapping live harness invocations using generated Compose projects and dynamic loopback ports.
 7. After isolated validation and only during serialized integration, sync the exported index configuration/documentation into `/home/mark/Projects/d11`; do not import into or restart its shared running instance unless explicitly needed for final acceptance and no sibling is using it.
 
+## Durable tester configuration
+
+The disposable integration index in `tests/integration/setup_server_index.php`
+records the relevance policy directly on its Search API fields:
+
+| Field | Boost |
+| --- | ---: |
+| `title` | `3.0` |
+| `body` | `1.0` |
+| `file_content` (extracted attachment text) | `1.0` |
+
+The values are exported index configuration consumed by `QueryBuilder`; they
+are intentionally not production scoring logic. The live query check reports
+both the configured values and the resulting wire `qf` (title `^3`, with the
+neutral body/file fields un-suffixed).
+
 ## Acceptance Criteria
 
 - [ ] Durable tester configuration records title `3`, body `1`, and attachment `1` relevance policy.

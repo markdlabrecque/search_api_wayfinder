@@ -23,8 +23,113 @@ $fixture = json_decode((string) file_get_contents('/opt/drupal/wayfinder_fixture
 $expected_target = 'entity:node/' . $fixture['target_node_id'] . ':en';
 $expected_related = 'entity:node/' . $fixture['related_node_id'] . ':en';
 $expected_attachment = 'entity:node/' . $fixture['attachment_node_id'] . ':en';
+$expected_report_title_a = 'entity:node/' . $fixture['report_title_a_id'] . ':en';
+$expected_report_title_b = 'entity:node/' . $fixture['report_title_b_id'] . ':en';
+$expected_report_body = 'entity:node/' . $fixture['report_body_id'] . ':en';
 
 $exit_code = 0;
+
+// Issue #41 configuration-drift contract. Boosts are durable Search API
+// index-field configuration, not production scoring policy: title is 3 and
+// body plus extracted file text are explicitly 1.
+$expected_boosts = ['title' => 3.0, 'body' => 1.0, 'file_content' => 1.0];
+foreach ($expected_boosts as $field_id => $expected_boost) {
+  $field = $index->getField($field_id);
+  $actual_boost = $field ? (float) $field->getBoost() : NULL;
+  echo "BOOST_CONFIG: $field_id expected=$expected_boost actual=" . ($actual_boost === NULL ? 'missing' : $actual_boost) . "\n";
+  if ($actual_boost === NULL || abs($actual_boost - $expected_boost) > 0.0001) {
+    echo "BOOST: FAIL - durable field boost drift for $field_id (expected $expected_boost)\n";
+    $exit_code = 1;
+  }
+}
+
+// Build the same three-field query that is sent by the backend and send it
+// with the real client. Printing qf here is live request evidence, while the
+// response docs below provide scored ordering evidence without guessing from
+// a Search API result item's incidental array order.
+try {
+  $relevance_query = $index->query();
+  $relevance_query->setParseMode($pmm->createInstance('terms'));
+  $relevance_query->keys('report');
+  $relevance_query->setFulltextFields(['title', 'body', 'file_content']);
+  // Mirror the backend's language-aware builder. A bare builder defaults to
+  // `und`, which is not necessarily the live site's configured language.
+  $relevance_builder = new \Drupal\search_api_wayfinder\QueryBuilder(
+    new \Drupal\search_api_wayfinder\FieldMapper(),
+    \Drupal::languageManager(),
+  );
+  $wire_params = $relevance_builder->build($relevance_query);
+  $wire_qf = (string) ($wire_params['qf'] ?? '');
+  echo "WIRE_QF_REQUEST: $wire_qf\n";
+
+  $field_mapper = new \Drupal\search_api_wayfinder\FieldMapper();
+  $language_ids = array_map(
+    static fn ($language): string => $language->getId(),
+    array_values(\Drupal::languageManager()->getLanguages()),
+  );
+  if ($language_ids === []) {
+    $language_ids = ['und'];
+  }
+  $expected_qf_tokens = [];
+  foreach (['title', 'body', 'file_content'] as $field_id) {
+    $field = $index->getField($field_id);
+    foreach ($language_ids as $language_id) {
+      $token = $field_mapper->fieldName(
+        $field_id,
+        $field->getType(),
+        $field_mapper->isMultiValued($field),
+        $language_id,
+      );
+      $expected_qf_tokens[] = $token . ($field_id === 'title' ? '^3' : '');
+    }
+  }
+  // qf is a whitespace-separated set of field clauses; clause order is not
+  // part of the wire contract and must not make this live check flaky.
+  $actual_qf_tokens = preg_split('/\s+/', trim($wire_qf), -1, PREG_SPLIT_NO_EMPTY);
+  sort($expected_qf_tokens);
+  sort($actual_qf_tokens);
+  if ($actual_qf_tokens !== $expected_qf_tokens) {
+    echo "WIRE_QF: FAIL - expected tokens [" . implode(', ', $expected_qf_tokens) . "], got [" . implode(', ', $actual_qf_tokens) . "]\n";
+    $exit_code = 1;
+  }
+  else {
+    echo "WIRE_QF: PASS - live client request applies title ^3 and body/file ^1 defaults\n";
+  }
+
+  $wire_response = (new \Drupal\search_api_wayfinder\WayfinderClient(
+    \Drupal::service('http_client'),
+    'http://wayfinder:8983/wayfinder/content',
+    5,
+    'operator',
+    'secret',
+  ))->select($wire_params + ['rows' => 10, 'echoParams' => 'all']);
+  $report_docs = $wire_response['response']['docs'] ?? [];
+  $positions = [];
+  foreach ($report_docs as $position => $doc) {
+    $id = (string) ($doc['id'] ?? '');
+    $score = (float) ($doc['score'] ?? 0);
+    echo "REPORT_SCORE: position=$position id=$id score=$score\n";
+    $positions[$id] = ['position' => $position, 'score' => $score];
+  }
+  $internal_id = static fn (string $id): string => 'wf19_index-' . $id;
+  $title_a = $positions[$internal_id($expected_report_title_a)] ?? NULL;
+  $title_b = $positions[$internal_id($expected_report_title_b)] ?? NULL;
+  $body_only = $positions[$internal_id($expected_report_body)] ?? NULL;
+  if (!$title_a || !$title_b || !$body_only ||
+      $title_a['score'] <= 0 || $title_b['score'] <= 0 || $body_only['score'] <= 0 ||
+      $title_a['position'] >= $body_only['position'] ||
+      $title_b['position'] >= $body_only['position']) {
+    echo "RANKING: FAIL - both title report matches must score and rank above the body-only report match\n";
+    $exit_code = 1;
+  }
+  else {
+    echo "RANKING: PASS - both title report matches outrank the body-only report match\n";
+  }
+}
+catch (\Throwable $e) {
+  echo "WIRE_QF/RANKING: FAIL - " . get_class($e) . ': ' . $e->getMessage() . "\n";
+  $exit_code = 1;
+}
 
 // Wayfinder keeps its configured-core ping public, but all query endpoints
 // require the backend's credentials. Prove both contracts before the normal
