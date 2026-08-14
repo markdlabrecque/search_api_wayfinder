@@ -178,6 +178,23 @@ if ! [ "$num_found" -ge 1 ] 2>/dev/null; then
 fi
 echo "confirmed: $num_found document(s) indexed for wf19_index"
 
+# Keep one host-side probe so the evidence contains the actual sort parameter
+# sent to a dynamically published loopback port, independently of Drupal's
+# result parser. The focused QueryBuilder test covers its serialization; this
+# proves the isolated live server accepts the same wire expression.
+SORT_URL="$(curl -sf --user operator:secret --get "$WAYFINDER_BASE_URL/select" \
+  --data-urlencode 'q=*:*' \
+  --data-urlencode 'fq=index_id:"wf19_index"' \
+  --data-urlencode 'fl=id,score,sort_title' \
+  --data-urlencode 'sort=score desc,sort_title asc,id asc' \
+  --data-urlencode 'rows=100' -o /dev/null -w '%{url_effective}')"
+if printf '%s' "$SORT_URL" | grep -Eiq 'sort=score[+%20]+desc.*sort_title[+%20]+asc.*id[+%20]+asc'; then
+  echo "SORT: PASS - live request $SORT_URL"
+else
+  echo "SORT: FAIL - live URL did not contain sort=score desc,sort_title asc,id asc: $SORT_URL" >&2
+  exit 1
+fi
+
 echo "--- real index+search round trip ---"
 docker compose exec -T drupal bash -lc "
   cd /opt/drupal

@@ -543,6 +543,46 @@ class QueryBuilderTest extends TestCase {
   }
 
   /**
+   * Search API promises relevance-descending behavior when the caller has not
+   * manually added a sort, but the backend must not invent a View-specific
+   * title/id order for every query. The deterministic order belongs in the
+   * caller's explicit sort directives (covered above).
+   *
+   * @covers ::build
+   */
+  public function testUnsortedQueriesDoNotInventABackendGlobalSort(): void {
+    $index = $this->mockIndex([], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+      'category' => $this->mockIndexField('category', 'string', FALSE),
+    ]);
+
+    $params = (new QueryBuilder())->build($this->mockQuery(NULL, NULL, $index));
+
+    $this->assertArrayNotHasKey('sort', $params);
+  }
+
+  /**
+   * The explicit multi-sort contract must keep relevance primary while title
+   * and item id are only deterministic tie breakers.
+   *
+   * @covers ::build
+   */
+  public function testDurableSortSerializesRelevanceTitleAndItemIdInPriorityOrder(): void {
+    $index = $this->mockIndex([], [
+      'title' => $this->mockIndexField('title', 'text', FALSE),
+    ]);
+    $query = $this->mockQuery(NULL, NULL, $index, NULL, [
+      'search_api_relevance' => 'DESC',
+      'title' => 'ASC',
+      'search_api_id' => 'ASC',
+    ]);
+
+    $params = (new QueryBuilder())->build($query);
+
+    $this->assertSame('score desc,sort_title asc,id asc', $params['sort']);
+  }
+
+  /**
    * @covers ::build
    */
   public function testUnlimitedLimitMapsToTheLargestPositiveRowCount(): void {
