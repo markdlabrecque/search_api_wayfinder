@@ -89,17 +89,22 @@ $index = Index::create([
     'default' => [],
   ],
   'field_settings' => [
+    // Issue #41 relevance policy: title matches are weighted three times
+    // higher than the neutral body/file fields. These are Search API index
+    // field settings (exportable and durable), not production scoring code.
     'title' => [
       'label' => 'Title',
       'datasource_id' => 'entity:node',
       'property_path' => 'title',
       'type' => 'text',
+      'boost' => 3.0,
     ],
     'body' => [
       'label' => 'Body',
       'datasource_id' => 'entity:node',
       'property_path' => 'body',
       'type' => 'text',
+      'boost' => 1.0,
     ],
     'category' => [
       'label' => 'Category',
@@ -115,6 +120,7 @@ $index = Index::create([
       'label' => 'File content',
       'property_path' => 'saw_field_attachments',
       'type' => 'text',
+      'boost' => 1.0,
     ],
   ],
   'options' => [
